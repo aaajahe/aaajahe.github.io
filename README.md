@@ -73,7 +73,7 @@
                             <label for="post-image" class="block text-sm font-medium text-gray-700">문제 사진</label>
                             <input type="file" id="post-image" accept="image/*" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-600 hover:file:bg-indigo-100" required>
                         </div>
-                        <button type="submit" id="submit-post-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center transition-colors">
+                        <button type="submit" id="submit-post-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center transition-colors disabled:bg-indigo-400 disabled:cursor-not-allowed" disabled>
                             <span id="submit-btn-text">질문 등록하기</span>
                             <div id="submit-loader" class="loader hidden"></div>
                         </button>
@@ -134,7 +134,6 @@
         const db = getFirestore(app);
         const storage = getStorage(app);
 
-        let currentUser = null;
         let userId = null;
 
         // 오늘의 단어 데이터
@@ -219,11 +218,7 @@
         // 포스트 등록 처리
         postForm.addEventListener('submit', async (e) => {
             e.preventDefault();
-            if (!currentUser) {
-                alert("로그인이 필요합니다.");
-                return;
-            }
-
+            
             const title = document.getElementById('post-title').value;
             const imageFile = document.getElementById('post-image').files[0];
 
@@ -238,8 +233,8 @@
 
             try {
                 // 1. 이미지 Firebase Storage에 업로드
-                // 공개 접근 규칙에 맞게 스토리지 경로를 수정했습니다.
-                const storageRef = ref(storage, `artifacts/${appId}/public/images/${Date.now()}_${imageFile.name}`);
+                // Firebase 스토리지 규칙에 맞는 공개 업로드 경로로 수정
+                const storageRef = ref(storage, `artifacts/${appId}/public/uploads/${Date.now()}_${imageFile.name}`);
                 const snapshot = await uploadBytes(storageRef, imageFile);
                 const imageUrl = await getDownloadURL(snapshot.ref);
 
@@ -248,16 +243,18 @@
                 await addDoc(collection(db, postsCollectionPath), {
                     title: title,
                     imageUrl: imageUrl,
-                    authorId: userId,
+                    authorId: userId, // 익명 사용자 ID 저장
                     createdAt: serverTimestamp()
                 });
 
                 postForm.reset();
             } catch (error) {
                 console.error("Error adding document: ", error);
-                alert("질문 등록에 실패했습니다.");
+                alert("질문 등록에 실패했습니다. 잠시 후 다시 시도해주세요.");
             } finally {
-                submitPostBtn.disabled = false;
+                if (userId) {
+                    submitPostBtn.disabled = false;
+                }
                 submitBtnText.classList.remove('hidden');
                 submitLoader.classList.add('hidden');
             }
@@ -330,7 +327,7 @@
             const postId = currentPostIdInput.value;
             const text = commentInput.value;
 
-            if (!text.trim() || !currentUser) return;
+            if (!text.trim() || !userId) return;
             
             const commentsCollectionPath = `/artifacts/${appId}/public/data/posts/${postId}/comments`;
             try {
@@ -350,10 +347,12 @@
         // 인증 상태 리스너
         onAuthStateChanged(auth, async (user) => {
             if (user) {
-                currentUser = user;
                 userId = user.uid;
-                userInfoDiv.innerHTML = `로그인된 사용자: <span class="font-semibold">${userId}</span>`;
+                userInfoDiv.innerHTML = `익명으로 사용 중입니다. (ID: <span class="font-semibold">${userId}</span>)`;
                 fetchPosts();
+                
+                // 시스템 준비 완료 후 버튼 활성화
+                submitPostBtn.disabled = false;
             } else {
                 try {
                     if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -364,6 +363,7 @@
                 } catch (error) {
                     console.error("Authentication failed:", error);
                     userInfoDiv.textContent = "인증에 실패했습니다. 새로고침 해주세요.";
+                    submitPostBtn.disabled = true;
                 }
             }
         });
